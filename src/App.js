@@ -1,69 +1,12 @@
-<<<<<<< HEAD
 
-// src/App.js
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+
+
+
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { ThemeProvider, CssBaseline } from "@mui/material"; 
-import axiosClient from "./api/axiosClient";
+import { ThemeProvider, CssBaseline, Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography, Box, CircularProgress } from "@mui/material";
 
-import theme from "./theme"; 
-=======
-/*
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
-import { useEffect, useState } from "react";
-import axiosClient from "./api/axiosClient";
-
-import Login from "./pages/Login";
-import Register from "./pages/Register";
-import Home from "./pages/Home";
-import Profile from "./pages/Profile";
-import EditProfile from "./pages/EditProfile";
-import SearchPage from "./pages/SearchPage"
-import UserProfile from "./pages/UserProfile"
-import FollowersPage  from "./pages/FollowersPage"
-import FollowingPage from "./pages/FollowingPage"
-function App() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    axiosClient.get("/auth/check")
-      .then(res => setUser(res.data.authenticated))
-      .catch(() => setUser(false))
-      .finally(() => setLoading(false));
-  }, []);
-
-  if (loading) return <div>Loading...</div>;
-
-  return (
-    <Router>
-      <Routes>
-        <Route path="/" element={user ? <Home setUser={setUser} /> : <Navigate to="/login" />} />
-        <Route path="/login" element={!user ? <Login setUser={setUser} /> : <Navigate to="/" />} />
-        <Route path="/register" element={!user ? <Register setUser={setUser} /> : <Navigate to="/" />} />
-
-        <Route path="/profile" element={user ? <Profile setUser={setUser} /> : <Navigate to="/login" />} />
-<Route path="/profile/edit" element={user ? <EditProfile setUser={setUser} /> : <Navigate to="/login" />} />
-<Route path="/search" element={<SearchPage />} />
-<Route path="/user/:id" element={<UserProfile />} />
-<Route path="/followers/:id" element={<FollowersPage />} />
-<Route path="/following/:id" element={<FollowingPage />} />
-
-      </Routes>
-    </Router>
-  );
-}
-
-export default App;
-*/
-// src/App.js
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
-import { useEffect, useState } from "react";
-import { ThemeProvider, CssBaseline } from "@mui/material"; // استيراد ThemeProvider
-import axiosClient from "./api/axiosClient";
-
-import theme from "./theme"; // استيراد theme.js
->>>>>>> 487d287d610ecf32cf17e5481b47ab57ccc35bde
+import theme from "./theme";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Home from "./pages/Home";
@@ -72,95 +15,134 @@ import EditProfile from "./pages/EditProfile";
 import SearchPage from "./pages/SearchPage";
 import UserProfile from "./pages/UserProfile";
 import FollowersPage from "./pages/FollowersPage";
-import FollowingPage from "./pages/FollowingPage";
-<<<<<<< HEAD
+import FollowingPage from "./pages/FollowingPage"; 
 import Inbox from "./pages/Inbox";
 import Chat from "./pages/Chat";
+import GroupWatchScreen from "./pages/GroupWatchScreen"; 
 
-=======
->>>>>>> 487d287d610ecf32cf17e5481b47ab57ccc35bde
+import { useDispatch, useSelector } from "react-redux";
+import { fetchMe } from "./features/auth/authSlice";
 
-function App() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+import { ToastProvider } from "./toast/ToastContext";
+import { Toaster } from "react-hot-toast";
+import { OnlineProvider, useOnline } from "./Context/OnlineContext"; 
+
+function WatchInviteListener({ user }) {
+  const { socket } = useOnline(); 
+  const [invite, setInvite] = useState(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
-<<<<<<< HEAD
-    const checkAuth = async () => {
-      try {
-        // أولاً: تحقق من accessToken
-        let res = await axiosClient.get("/auth/check");
+    if (!socket) return;
+    
+    socket.on("receiveGroupWatchInvite", (data) => {
+      console.log("📥 [WatchInvite] Received Invite:", data);
+      setInvite(data);
+    });
 
-        if (res.data.authenticated) {
-          setUser(true);
-        } else if (res.data.needRefresh) {
-          // إذا انتهت صلاحية accessToken → نجددها
-          await axiosClient.post("/auth/refresh");
+    socket.on("inviteAccepted", ({ roomId, postId }) => {
+      console.log("✅ [WatchInvite] Invite Accepted, moving to room:", roomId);
+      navigate(`/group-watch/${postId}?roomId=${roomId}`);
+    });
 
-          // نتحقق مرة ثانية بعد التجديد
-          res = await axiosClient.get("/auth/check");
-          if (res.data.authenticated) {
-            setUser(true);
-          } else {
-            setUser(false);
-          }
-        } else {
-          setUser(false);
-        }
-      } catch (err) {
-        setUser(false);
-      } finally {
-        setLoading(false);
-      }
+    return () => {
+      socket.off("receiveGroupWatchInvite");
+      socket.off("inviteAccepted");
     };
+  }, [socket, navigate]);
 
-    checkAuth();
-=======
-    axiosClient.get("/auth/check")
-      .then(res => setUser(res.data.authenticated))
-      .catch(() => setUser(false))
-      .finally(() => setLoading(false));
->>>>>>> 487d287d610ecf32cf17e5481b47ab57ccc35bde
-  }, []);
+  const handleAccept = () => {
+    if (socket && invite) {
+      socket.emit("acceptGroupWatchInvite", {
+        senderId: invite.senderId,
+        receiverId: user._id,
+        postId: invite.postId,
+        roomId: invite.roomId
+      });
+      navigate(`/group-watch/${invite.postId}?roomId=${invite.roomId}`);
+      setInvite(null);
+    }
+  };
 
-  if (loading) return <div>Loading...</div>;
+  const handleReject = () => setInvite(null);
 
   return (
-<<<<<<< HEAD
-    <ThemeProvider theme={theme}> 
-      <CssBaseline /> 
-=======
-    <ThemeProvider theme={theme}> {/* غلف المشروع بالThemeProvider */}
-      <CssBaseline /> {/* يضيف reset للـ CSS ويطبق الـ theme */}
->>>>>>> 487d287d610ecf32cf17e5481b47ab57ccc35bde
-      <Router>
-        <Routes>
-          <Route path="/" element={user ? <Home setUser={setUser} /> : <Navigate to="/login" />} />
-          <Route path="/login" element={!user ? <Login setUser={setUser} /> : <Navigate to="/" />} />
-          <Route path="/register" element={!user ? <Register setUser={setUser} /> : <Navigate to="/" />} />
-          <Route path="/profile" element={user ? <Profile setUser={setUser} /> : <Navigate to="/login" />} />
-          <Route path="/profile/edit" element={user ? <EditProfile setUser={setUser} /> : <Navigate to="/login" />} />
-          <Route path="/search" element={<SearchPage />} />
-          <Route path="/user/:id" element={<UserProfile />} />
-          <Route path="/followers/:id" element={<FollowersPage />} />
-          <Route path="/following/:id" element={<FollowingPage />} />
-<<<<<<< HEAD
-           <Route path="/messages/:id" element={<Chat />} />
+    <Dialog open={Boolean(invite)} onClose={handleReject}>
+      <DialogTitle sx={{ fontWeight: "bold" }}>🔔 دعوة مشاهدة مشتركة</DialogTitle>
+      <DialogContent>
+        <Typography>قام <strong>{invite?.senderName}</strong> بدعوتك لمشاهدة منشور معه!</Typography>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={handleReject} color="inherit">رفض</Button>
+        <Button onClick={handleAccept} variant="contained" color="primary">قبول ودخول</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
 
+function App() {
+  const dispatch = useDispatch();
+  const { user, isLoading } = useSelector((state) => state.auth);
+  
+  const [isInitialized, setIsInitialized] = useState(false);
 
-  <Route path="/inbox" element={<Inbox />} /> 
+  useEffect(() => {
+    const initializeApp = async () => {
+      console.log("📡 [App] Booting: Checking Authentication...");
+      await dispatch(fetchMe());
+      setIsInitialized(true);
+      console.log("✅ [App] Authentication Check Finished.");
+    };
 
+    initializeApp();
+  }, [dispatch]);
 
-=======
->>>>>>> 487d287d610ecf32cf17e5481b47ab57ccc35bde
-        </Routes>
-      </Router>
+  if (!isInitialized || isLoading) {
+    console.log("⏳ [App Guard] Loading State Active...");
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', bgcolor: '#f0f2f5' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  console.log("🔍 [CHECK] User State:", user, " | Loading:", isLoading, " | Initialized:", isInitialized);
+
+  return (
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <ToastProvider>
+        <Toaster position="top-right" />
+        <OnlineProvider user={user}>
+          {console.log("🌐 [App] Rendering Router with User:", user?._id)}
+          <Router>
+            {user && <WatchInviteListener user={user} />}
+            
+            <Routes>
+              <Route path="/" element={user ? <Home /> : <Navigate to="/login" />} />
+              
+              <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
+              <Route path="/register" element={!user ? <Register /> : <Navigate to="/" />} />
+              
+              <Route path="/profile" element={user ? <Profile /> : <Navigate to="/login" />} />
+              <Route path="/profile/edit" element={user ? <EditProfile /> : <Navigate to="/login" />} />
+              <Route path="/user/:id" element={user ? <UserProfile /> : <Navigate to="/login" />} />
+              <Route path="/followers/:id" element={user ? <FollowersPage /> : <Navigate to="/login" />} />
+              <Route path="/following/:id" element={user ? <FollowingPage /> : <Navigate to="/login" />} />
+              
+              <Route path="/search" element={user ? <SearchPage /> : <Navigate to="/login" />} />
+              <Route path="/inbox" element={user ? <Inbox /> : <Navigate to="/login" />} />
+              <Route path="/messages/:id" element={user ? <Chat /> : <Navigate to="/login" />} />
+              
+              <Route path="/group-watch/:postId" element={user ? <GroupWatchScreen /> : <Navigate to="/login" />} />
+              
+              <Route path="*" element={<Navigate to={user ? "/" : "/login"} />} />
+            </Routes>
+          </Router>
+        </OnlineProvider>
+      </ToastProvider>
     </ThemeProvider>
   );
 }
 
 export default App;
-<<<<<<< HEAD
-
-=======
->>>>>>> 487d287d610ecf32cf17e5481b47ab57ccc35bde

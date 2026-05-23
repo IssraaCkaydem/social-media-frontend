@@ -1,44 +1,63 @@
 
-import { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+
+
+import React, { useState, useCallback } from "react";
 import { Box, Typography, TextField, Button } from "@mui/material";
 import { motion } from "framer-motion";
-import axiosClient from "../api/axiosClient";
+import { useNavigate, Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { useToast } from "../toast/ToastContext";
 
-export default function Register({ setUser }) {
+import { useDispatch } from "react-redux";
+import { register } from "../features/auth";
+import "../i18n";
+
+export default function Register() {
+  const { t, i18n } = useTranslation();
+  const { showToast } = useToast();
   const navigate = useNavigate();
+  const dispatch = useDispatch();
+
+  // --- States ---
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
 
-  const handleRegister = async () => {
-<<<<<<< HEAD
-  try {
-    await axiosClient.post("/auth/register", { name, email, password });
-    setUser(true);
-    navigate("/"); // Redirect to Home
-  } catch (err) {
-    // أقرأ أولاً رسائل الـ validation
-    const validationErrors = err.response?.data?.errors;
-    if (validationErrors && validationErrors.length > 0) {
-      setError(validationErrors.join(", ")); // كل الرسائل معاً
-    } else {
-      // رسائل أخرى من backend
-      setError(err.response?.data?.message || "Registration failed");
-    }
-  }
-};
-=======
+  const handleRegister = useCallback(async () => {
+    const trimmedName = name.trim();
+    const trimmedEmail = email.trim();
+
+    if (!trimmedName || !trimmedEmail || !password) return;
+
     try {
-      await axiosClient.post("/auth/register", { name, email, password });
-      setUser(true);
-      navigate("/"); // Redirect to Home
+      const result = await dispatch(
+        register({ name: trimmedName, email: trimmedEmail, password })
+      );
+
+      if (register.fulfilled.match(result)) {
+        showToast("registrationSuccess", t("registrationSuccess"), {
+          icon: "✅",
+        });
+        navigate("/");
+      } 
+      else {
+        const err = result.payload;
+        const validationErrors = err?.errors;
+        let message;
+
+        if (validationErrors && validationErrors.length > 0) {
+          message = validationErrors.join(", ");
+        } else {
+          message = err?.message || t("registrationFailed");
+        }
+
+        showToast("registrationFailed", message, { icon: "❌" });
+      }
     } catch (err) {
-      setError(err.response?.data?.msg || "Registration failed");
+      console.error("Critical Registration Error:", err);
+      showToast("registrationFailed", t("registrationFailed"), { icon: "❌" });
     }
-  };
->>>>>>> 487d287d610ecf32cf17e5481b47ab57ccc35bde
+  }, [name, email, password, dispatch, navigate, t, showToast]);
 
   return (
     <motion.div
@@ -60,44 +79,48 @@ export default function Register({ setUser }) {
           borderRadius: 3,
           boxShadow: 3,
           backgroundColor: "background.paper",
+          direction: i18n.language === "ar" ? "rtl" : "ltr",
         }}
       >
         <Typography
           variant="h4"
           mb={3}
           textAlign="center"
-          color="text.primary"
+          fontWeight="bold"
+          color="primary.main"
         >
           MyGram
         </Typography>
 
-        {error && (
-          <Typography color="error" mb={2} textAlign="center">
-            {error}
-          </Typography>
-        )}
-
         <TextField
           fullWidth
-          label="Name"
+          label={t("name")}
           value={name}
           onChange={(e) => setName(e.target.value)}
           variant="outlined"
+          sx={{ mb: 2 }}
+          onKeyDown={(e) => e.key === "Enter" && handleRegister()} 
         />
+
         <TextField
           fullWidth
-          label="Email"
+          label={t("email")}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           variant="outlined"
+          sx={{ mb: 2 }}
+          onKeyDown={(e) => e.key === "Enter" && handleRegister()} 
         />
+
         <TextField
           fullWidth
           type="password"
-          label="Password"
+          label={t("password")}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           variant="outlined"
+          sx={{ mb: 2 }}
+          onKeyDown={(e) => e.key === "Enter" && handleRegister()} 
         />
 
         <Button
@@ -105,15 +128,16 @@ export default function Register({ setUser }) {
           variant="contained"
           color="primary"
           onClick={handleRegister}
-          sx={{ mt: 2, py: 1.5 }}
+          disabled={!name.trim() || !email.trim() || !password} 
+          sx={{ mt: 2, py: 1.5, fontWeight: "bold", borderRadius: 2 }}
         >
-          Register
+          {t("register")}
         </Button>
 
-        <Typography mt={2} textAlign="center" color="text.secondary">
-          Already have an account?{" "}
-          <Link to="/login" style={{ color: "#00a8ff", fontWeight: 500 }}>
-            Login
+        <Typography mt={2} textAlign="center" variant="body2" color="text.secondary">
+          {t("alreadyHaveAccount")}{" "}
+          <Link to="/login" style={{ color: "#00a8ff", fontWeight: 600, textDecoration: "none" }}>
+            {t("login")}
           </Link>
         </Typography>
       </Box>

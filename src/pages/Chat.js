@@ -1,241 +1,285 @@
 
 
 
-import { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import axiosClient from "../api/axiosClient";
-import MessageBubble from "../components/MessageBubble";
-import ChatHeader from "../components/ChatHeader"; // ✅ import ChatHeader
-import { Box, InputBase, IconButton, Typography } from "@mui/material";
-import SendIcon from "@mui/icons-material/Send";
-import MicIcon from "@mui/icons-material/Mic";
-import StopIcon from "@mui/icons-material/Stop";
+import { useSelector } from "react-redux";
+import {
+  Box, InputBase, IconButton, CircularProgress, Typography,
+} from "@mui/material";
+import {
+  Send as SendIcon, Mic as MicIcon, Stop as StopIcon,
+  Delete as DeleteIcon, Image as ImageIcon
+} from "@mui/icons-material";
+
+import axiosClient from '../api/axiosClient';
 import socket from "../socket";
+import { 
+  getMessages, sendMessage, sendVoiceMessage, markMessagesSeen, 
+  deleteForMe, deleteForEveryone, ChatHeader, MessageBubble 
+} from "../features/chat";
 
 export default function Chat() {
   const { id } = useParams();
+  const { user } = useSelector((s) => s.auth);
+  const me = user?._id;
+
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
-  const [me, setMe] = useState(null);
-  const [typing, setTyping] = useState(false);
-  const [otherRecording, setOtherRecording] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [isTyping, setIsTyping] = useState(false);
+  const [isRecordingMe, setIsRecordingMe] = useState(false);
+  const [isRecordingUser, setIsRecordingUser] = useState(false);
+  const [recordTime, setRecordTime] = useState(0);
+  const [audioPreview, setAudioPreview] = useState(null);
 
-  // Voice states
-  const [recordState, setRecordState] = useState("idle");
-  const [recordingTime, setRecordingTime] = useState(0);
-  const [audioBlob, setAudioBlob] = useState(null);
-
+  const typingTimeout = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
-  const timerRef = useRef(null);
-  const messagesEndRef = useRef(null);
-  const typingTimeoutRef = useRef(null);
+  const recordInterval = useRef(null);
+  const scrollRef = useRef(null);
+  const fileInputRef = useRef(null);
 
-  // =========================
-  // INITIAL LOAD
-  // =========================
-  useEffect(() => {
-    if (!socket.connected) socket.connect();
-
-    const load = async () => {
-      const meRes = await axiosClient.get("/auth/me");
-      setMe(meRes.data._id);
-
-      const msgRes = await axiosClient.get(`/messages/${id}`);
-      setMessages(msgRes.data);
-
-      socket.emit("join", meRes.data._id);
-
-      // 🔥 mark messages as seen
-      await axiosClient.put(`/messages/seen/${id}`);
-    };
-
-    load();
-  }, [id]);
-
-  // =========================
-  // SOCKET EVENTS
-  // =========================
-  useEffect(() => {
-    const handleNewMessage = async (msg) => {
-      setMessages(prev => [...prev, msg]);
-
-      if (String(msg.senderId) === String(id)) {
-        await axiosClient.put(`/messages/seen/${id}`);
-        socket.emit("messagesSeen", { senderId: msg.senderId, receiverId: me });
-      }
-    };
-
-    const handleDeleteMessage = msgId => setMessages(prev => prev.filter(m => m._id !== msgId));
-
-    const handleTyping = senderId => {
-      if (String(senderId) === String(id)) {
-        setTyping(true);
-        clearTimeout(typingTimeoutRef.current);
-        typingTimeoutRef.current = setTimeout(() => setTyping(false), 1500);
-      }
-    };
-
-    const handleRecording = senderId => { if (String(senderId) === String(id)) setOtherRecording(true); };
-    const handleStopRecording = senderId => { if (String(senderId) === String(id)) setOtherRecording(false); };
-
-    const handleSeen = ({ seenBy }) => {
-      if (String(seenBy) === String(id)) {
-        setMessages(prev =>
-          prev.map(msg => String(msg.senderId) === String(me) ? { ...msg, seen: true } : msg)
-        );
-      }
-    };
-
-    socket.on("newMessage", handleNewMessage);
-    socket.on("deleteMessage", handleDeleteMessage);
-    socket.on("typing", handleTyping);
-    socket.on("recording", handleRecording);
-    socket.on("stopRecording", handleStopRecording);
-    socket.on("messagesSeen", handleSeen);
-
-    return () => {
-      socket.off("newMessage", handleNewMessage);
-      socket.off("deleteMessage", handleDeleteMessage);
-      socket.off("typing", handleTyping);
-      socket.off("recording", handleRecording);
-      socket.off("stopRecording", handleStopRecording);
-      socket.off("messagesSeen", handleSeen);
-    };
+  const handleMarkAsSeen = useCallback(async () => {
+    if (!id || !me || !document.hasFocus()) return;
+    try {
+      await markMessagesSeen(id);
+      socket.emit("messagesSeen", { senderId: id, receiverId: me });
+    } catch (err) {
+      console.error("Seen Error:", err);
+    }
   }, [id, me]);
 
-  // =========================
-  // AUTO SCROLL
-  // =========================
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, typing, otherRecording]);
-
-  // =========================
-  // SEND TEXT
-  // =========================
-  const sendMessage = async () => {
-    if (!text.trim()) return;
-
-    const res = await axiosClient.post("/messages", { receiverId: id, text });
-    socket.emit("sendMessage", res.data);
-    setMessages(prev => [...prev, res.data]);
-    await axiosClient.put(`/messages/seen/${id}`);
-    setText("");
-  };
-
-  const handleInputChange = e => {
-    setText(e.target.value);
-    if (me) socket.emit("typing", { senderId: me, receiverId: id });
-  };
-
-  // =========================
-  // VOICE RECORDING
-  // =========================
-  const startRecording = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const recorder = new MediaRecorder(stream);
-    mediaRecorderRef.current = recorder;
-    audioChunksRef.current = [];
-    setRecordingTime(0);
-    setRecordState("recording");
-    if (me) socket.emit("recording", { senderId: me, receiverId: id });
-    recorder.ondataavailable = e => audioChunksRef.current.push(e.data);
-    recorder.onstop = () => {
-      const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-      setAudioBlob(blob);
-      setRecordState("recorded");
-      if (me) socket.emit("stopRecording", { senderId: me, receiverId: id });
+    const load = async () => {
+      setLoading(true);
+      try {
+        const res = await getMessages(id);
+        setMessages(res || []);
+        handleMarkAsSeen();
+      } catch (err) {
+        console.error("Load Error:", err);
+      } finally {
+        setLoading(false);
+      }
     };
-    recorder.start();
-    timerRef.current = setInterval(() => setRecordingTime(prev => prev + 1), 1000);
-  };
+    if (me && id) load();
+  }, [id, me, handleMarkAsSeen]);
 
-  const stopRecording = () => {
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
-      clearInterval(timerRef.current);
+  const cancelImage = useCallback(() => {
+    setSelectedImage(null);
+    setImagePreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }, []);
+
+  const handleImageChange = useCallback((e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setSelectedImage(file);
+      setImagePreview(URL.createObjectURL(file));
     }
+  }, []);
+
+  const handleTyping = useCallback((value) => {
+    setText(value);
+    socket.emit("typing", { senderId: me, receiverId: id });
+    if (typingTimeout.current) clearTimeout(typingTimeout.current);
+    typingTimeout.current = setTimeout(() => {
+      socket.emit("stopTyping", { senderId: me, receiverId: id });
+    }, 1500);
+  }, [id, me]);
+
+  const sendMsg = useCallback(async () => {
+    const trimmedText = text.trim();
+    if (!trimmedText && !selectedImage) return;
+    try {
+      let resData;
+      if (selectedImage) {
+        const formData = new FormData();
+        formData.append("image", selectedImage);
+        formData.append("receiverId", id);
+        formData.append("text", trimmedText);
+        const response = await axiosClient.post("/messages/image", formData, {
+          withCredentials: true,
+          headers: { "Content-Type": "multipart/form-data" }
+        });
+        resData = response.data;
+      } else {
+        resData = await sendMessage({ receiverId: id, text: trimmedText });
+      }
+
+      socket.emit("sendMessage", resData);
+      setMessages((prev) => (prev.some(m => m._id === resData._id) ? prev : [...prev, resData]));
+      setText("");
+      cancelImage();
+    } catch (err) {
+      console.error("Send Error:", err);
+    }
+  }, [id, text, selectedImage, cancelImage]);
+
+  useEffect(() => {
+    const onNewMessage = (msg) => {
+      if (msg.senderId === id || msg.receiverId === id) {
+        if (msg.senderId === id) setIsRecordingUser(false);
+        setMessages((prev) => (prev.some(m => m._id === msg._id) ? prev : [...prev, msg]));
+        
+        if (msg.senderId === id && document.hasFocus()) {
+          handleMarkAsSeen();
+        }
+      }
+    };
+
+    socket.on("newMessage", onNewMessage);
+    socket.on("messagesSeen", ({ readerId }) => {
+      if (readerId === id) {
+        setMessages((prev) => prev.map((m) => m.senderId === me ? { ...m, seen: true } : m));
+      }
+    });
+    socket.on("messageDeleted", ({ messageId }) => {
+      setMessages((prev) => prev.filter((m) => m._id !== messageId));
+    });
+    socket.on("typing", ({ senderId }) => senderId === id && setIsTyping(true));
+    socket.on("stopTyping", ({ senderId }) => senderId === id && setIsTyping(false));
+    socket.on("recording", ({ senderId }) => senderId === id && setIsRecordingUser(true));
+    socket.on("stopRecording", ({ senderId }) => senderId === id && setIsRecordingUser(false));
+
+    return () => {
+      socket.off("newMessage");
+      socket.off("messagesSeen");
+      socket.off("messageDeleted");
+      socket.off("typing");
+      socket.off("stopTyping");
+      socket.off("recording");
+      socket.off("stopRecording");
+    };
+  }, [id, me, handleMarkAsSeen]);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+      mediaRecorder.ondataavailable = (e) => audioChunksRef.current.push(e.data);
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        setAudioPreview({ blob, url: URL.createObjectURL(blob) });
+      };
+      mediaRecorder.start();
+      setRecordTime(0);
+      recordInterval.current = setInterval(() => setRecordTime((p) => p + 1), 1000);
+      setIsRecordingMe(true);
+      socket.emit("recording", { senderId: me, receiverId: id });
+    } catch (err) { console.error(err); }
   };
 
-  const sendVoice = async () => {
-    if (!audioBlob) return;
-    const file = new File([audioBlob], "voice.webm", { type: "audio/webm" });
-    const formData = new FormData();
-    formData.append("voice", file);
-    formData.append("receiverId", id);
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && isRecordingMe) {
+      mediaRecorderRef.current.stop();
+      clearInterval(recordInterval.current);
+      setIsRecordingMe(false);
+      socket.emit("stopRecording", { senderId: me, receiverId: id });
+    }
+  }, [id, me, isRecordingMe]);
 
-    const res = await axiosClient.post("/messages/voice", formData);
-    socket.emit("sendMessage", res.data);
-    setMessages(prev => [...prev, res.data]);
-    resetRecording();
-  };
+  const sendVoice = useCallback(async () => {
+    if (!audioPreview) return;
+    try {
+      const formData = new FormData();
+      formData.append("voice", audioPreview.blob);
+      formData.append("receiverId", id);
+      const res = await sendVoiceMessage(formData);
+      socket.emit("stopRecording", { senderId: me, receiverId: id });
+      socket.emit("sendMessage", res);
+      setMessages((prev) => (prev.some(m => m._id === res._id) ? prev : [...prev, res]));
+      setAudioPreview(null);
+    } catch (err) { console.error(err); }
+  }, [id, me, audioPreview]);
 
-  const cancelVoice = () => resetRecording();
-  const resetRecording = () => { setAudioBlob(null); setRecordingTime(0); setRecordState("idle"); };
-  console.log("Chat id param:", id);
+  useEffect(() => {
+    window.addEventListener("focus", handleMarkAsSeen);
+    return () => window.removeEventListener("focus", handleMarkAsSeen);
+  }, [handleMarkAsSeen]);
 
-  // =========================
-  // UI
-  // =========================
+  // --- Auto Scroll ---
+  useEffect(() => {
+    if (messages.length > 0) {
+      const timer = setTimeout(() => {
+        scrollRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [messages.length]);
+
+  if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', mt: 10 }}><CircularProgress /></Box>;
+
   return (
-    <Box sx={{ maxWidth: 600, mx: "auto", mt: 5 }}>
+    <Box sx={{ maxWidth: 600, mx: "auto", mt: 2, display: 'flex', flexDirection: 'column', height: '90vh' }}>
+      <ChatHeader userId={id} onClearChat={async () => {
+          await axiosClient.delete(`/messages/clear/${id}`);
+          setMessages([]);
+      }} />
 
-      {/* ===== CHAT HEADER ===== */}
-      <ChatHeader userId={id} />  {/* ✅ component for profile & name */}
-
-      {/* ===== MESSAGES LIST ===== */}
-      <Box sx={{ height: "70vh", overflowY: "auto", display: "flex", flexDirection: "column" }}>
-        {messages.map(msg => (
+      <Box sx={{ flexGrow: 1, overflowY: "auto", p: 2, bgcolor: '#f5f5f5', borderRadius: 2, my: 1 }}>
+        {messages.map((m) => (
           <MessageBubble
-            key={msg._id}
-            message={msg}
-            isMe={String(msg.senderId) === String(me)}
-            onDeleteForMe={async id => {
-              await axiosClient.delete(`/messages/me/${id}`);
-              setMessages(prev => prev.filter(m => m._id !== id));
-            }}
-            onDeleteForEveryone={async id => {
-              await axiosClient.delete(`/messages/everyone/${id}`);
-              setMessages(prev => prev.filter(m => m._id !== id));
-            }}
+            key={m._id}
+            message={m}
+            isMe={m.senderId === me}
+            onDeleteForMe={(mId) => { deleteForMe(mId); setMessages(p => p.filter(msg => msg._id !== mId)); }}
+            onDeleteForEveryone={(mId) => { deleteForEveryone(mId); setMessages(p => p.filter(msg => msg._id !== mId)); }}
           />
         ))}
-
-        {typing && <Typography sx={{ fontSize: 12, color: "#555", ml: 1 }}>Typing...</Typography>}
-        {otherRecording && <Typography sx={{ fontSize: 12, color: "red", ml: 1 }}>🎤 Recording...</Typography>}
-        <div ref={messagesEndRef} />
+        <div ref={scrollRef} style={{ float: "left", clear: "both" }} />
       </Box>
 
-      {/* ===== RECORDING STATUS ===== */}
-      {recordState === "recording" && <Typography sx={{ color: "red", fontSize: 14 }}>Recording... {recordingTime}s</Typography>}
+      <Box sx={{ px: 2, height: 20 }}>
+        {isTyping && <Typography variant="caption" color="primary">Typing...</Typography>}
+        {isRecordingUser && <Typography variant="caption" color="error">🎤 Recording voice...</Typography>}
+      </Box>
 
-      {recordState === "recorded" && audioBlob && (
-        <Box sx={{ mb: 1 }}>
-          <audio controls src={URL.createObjectURL(audioBlob)} />
-          <Box>
-            <IconButton onClick={sendVoice}><SendIcon /></IconButton>
-            <IconButton onClick={cancelVoice}>❌</IconButton>
+      <Box sx={{ p: 2, bgcolor: 'background.paper', borderTop: '1px solid #ddd' }}>
+        {imagePreview && (
+          <Box sx={{ position: 'relative', display: 'inline-block', mb: 1 }}>
+            <img src={imagePreview} alt="preview" style={{ width: 100, height: 100, borderRadius: 8, objectFit: 'cover' }} />
+            <IconButton size="small" onClick={cancelImage} sx={{ position: 'absolute', top: -10, right: -10, bgcolor: 'error.main', color: 'white' }}>
+              <DeleteIcon fontSize="small" />
+            </IconButton>
           </Box>
-        </Box>
-      )}
-
-      {/* ===== INPUT ===== */}
-      <Box sx={{ display: "flex", mt: 1 }}>
-        <InputBase
-          value={text}
-          onChange={handleInputChange}
-          placeholder="Type a message..."
-          sx={{ flex: 1, border: "1px solid #ccc", borderRadius: 1, px: 1 }}
-          onKeyDown={e => e.key === "Enter" && sendMessage()}
-        />
-        {recordState === "idle" && (
-          <>
-            <IconButton onClick={sendMessage}><SendIcon /></IconButton>
-            <IconButton onClick={startRecording}><MicIcon /></IconButton>
-          </>
         )}
-        {recordState === "recording" && <IconButton onClick={stopRecording}><StopIcon /></IconButton>}
+
+        {audioPreview && (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1, p: 1, bgcolor: '#eee', borderRadius: 2 }}>
+            <audio src={audioPreview.url} controls style={{ height: 30 }} />
+            <IconButton color="success" onClick={sendVoice}><SendIcon /></IconButton>
+            <IconButton color="error" onClick={() => { setAudioPreview(null); socket.emit("stopRecording", { senderId: me, receiverId: id }); }}><DeleteIcon /></IconButton>
+          </Box>
+        )}
+        
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <input type="file" accept="image/*" ref={fileInputRef} style={{ display: 'none' }} onChange={handleImageChange} />
+          <IconButton onClick={() => fileInputRef.current.click()}><ImageIcon /></IconButton>
+          <InputBase
+            value={text}
+            onChange={(e) => handleTyping(e.target.value)}
+            fullWidth
+            placeholder="Type a message..."
+            onKeyPress={(e) => e.key === 'Enter' && sendMsg()}
+            sx={{ bgcolor: '#f0f0f0', p: 1, borderRadius: 2, px: 2 }}
+          />
+          {(text.trim() || selectedImage) ? (
+            <IconButton onClick={sendMsg} color="primary"><SendIcon /></IconButton>
+          ) : isRecordingMe ? (
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+               <Typography variant="caption" sx={{ mr: 1 }}>{recordTime}s</Typography>
+               <IconButton color="error" onClick={stopRecording}><StopIcon /></IconButton>
+            </Box>
+          ) : (
+            <IconButton onClick={startRecording}><MicIcon /></IconButton>
+          )}
+        </Box>
       </Box>
     </Box>
   );

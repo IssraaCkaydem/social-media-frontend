@@ -1,118 +1,93 @@
 
-<<<<<<< HEAD
-
-import { useState, useEffect } from "react";
-=======
-// src/pages/Login.jsx
-import { useState } from "react";
->>>>>>> 487d287d610ecf32cf17e5481b47ab57ccc35bde
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Box, Typography, TextField, Button } from "@mui/material";
 import { motion } from "framer-motion";
-import axiosClient from "../api/axiosClient";
+import { useTranslation } from "react-i18next";
+import { useToast } from "../toast/ToastContext";
+import { useDispatch } from "react-redux";
+import { login } from "../features/auth";
+import "../i18n";
 
-export default function Login({ setUser }) {
+export default function Login() {
+  const { t, i18n } = useTranslation();
+  const { showToast } = useToast();
   const navigate = useNavigate();
+  const dispatch = useDispatch();
+
+  // --- States ---
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-<<<<<<< HEAD
   const [countdown, setCountdown] = useState(0);
 
-  // 🔎 Helper: start countdown
-  const startCountdown = (blockedUntil) => {
+  // --- Refs ---
+  const countdownIntervalRef = useRef(null);
+
+  const startCountdown = useCallback((blockedUntil) => {
     const remaining = Math.ceil((blockedUntil - Date.now()) / 1000);
     if (remaining <= 0) return;
 
     setCountdown(remaining);
-    setError("Too many login attempts");
+    showToast("tooManyAttempts", t("tooManyAttempts"), { icon: "❌" });
 
-    const timer = setInterval(() => {
+    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+
+    countdownIntervalRef.current = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
-          clearInterval(timer);
-          setError("");
+          if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
           localStorage.removeItem("blockedUntil");
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
-  };
+  }, [t, showToast]);
 
-  // 🔎 Check if account blocked when email changes or page loads
   useEffect(() => {
     const blockedUntilLS = localStorage.getItem("blockedUntil");
-    if (blockedUntilLS) {
-      startCountdown(Number(blockedUntilLS));
-    }
+    if (blockedUntilLS) startCountdown(Number(blockedUntilLS));
 
-    if (!email) return;
-
-    const checkBlock = async () => {
-      try {
-        const res = await axiosClient.get(`/auth/check-block/${email}`, {
-          withCredentials: true,
-        });
-        if (res.data.blockedUntil) {
-          localStorage.setItem("blockedUntil", res.data.blockedUntil);
-          startCountdown(Number(res.data.blockedUntil));
-        }
-      } catch (err) {
-        console.log("Block check error", err);
-      }
+    return () => {
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
     };
+  }, [startCountdown]);
 
-    checkBlock();
-  }, [email]);
+  const handleLogin = useCallback(async () => {
+    if (countdown > 0) return;
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail || !password) return;
 
-  // 🔐 Handle login request
-  const handleLogin = async () => {
-    setError("");
     try {
-      await axiosClient.post(
-        "/auth/login",
-        { email, password },
-        { withCredentials: true }
-      );
-      setUser(true);
-      navigate("/");
+      const result = await dispatch(login({ email: trimmedEmail, password }));
+
+      if (login.fulfilled.match(result)) {
+        showToast("loginSuccess", t("loginSuccess"), { icon: "✅" });
+        navigate("/");
+      } else {
+        const err = result.payload;
+        const validationErrors = err?.errors;
+
+        if (validationErrors && validationErrors.length > 0) {
+          showToast("loginError", validationErrors[0], { icon: "❌" });
+        } else {
+          showToast("loginError", err?.message || t("loginFailed"), { icon: "❌" });
+        }
+
+        if (err?.blockedUntil) {
+          localStorage.setItem("blockedUntil", err.blockedUntil);
+          startCountdown(Number(err.blockedUntil));
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      showToast("loginError", t("loginFailed"), { icon: "❌" });
     }
-   catch (err) {
+  }, [email, password, countdown, dispatch, navigate, startCountdown, t, showToast]);
 
-  const validationErrors = err.response?.data?.errors;
-
-  if (validationErrors && validationErrors.length > 0) {
-    setError(validationErrors[0]); // show validation message
-  } else {
-    const message = err.response?.data?.message || "Login failed";
-    setError(message);
-  }
-
-  if (err.response?.data?.blockedUntil) {
-    localStorage.setItem("blockedUntil", err.response.data.blockedUntil);
-    startCountdown(Number(err.response.data.blockedUntil));
-  }
-}
-  };
-
-  // 🕒 convert seconds to minutes + seconds
   const minutes = Math.floor(countdown / 60);
   const seconds = countdown % 60;
 
-=======
-
-  const handleLogin = async () => {
-    try {
-      await axiosClient.post("/auth/login", { email, password });
-      setUser(true);
-      navigate("/"); // Redirect to Home
-    } catch (err) {
-      setError(err.response?.data?.message || "Login failed");
-    }
-  };
-
->>>>>>> 487d287d610ecf32cf17e5481b47ab57ccc35bde
   return (
     <motion.div
       initial={{ opacity: 0, y: -20 }}
@@ -124,6 +99,7 @@ export default function Login({ setUser }) {
         justifyContent: "center",
         alignItems: "center",
         backgroundColor: "#f5f6fa",
+        direction: i18n.language === "ar" ? "rtl" : "ltr",
       }}
     >
       <Box
@@ -135,84 +111,52 @@ export default function Login({ setUser }) {
           backgroundColor: "background.paper",
         }}
       >
-<<<<<<< HEAD
-        <Typography variant="h4" mb={3} textAlign="center">
-=======
-        <Typography
-          variant="h4"
-          mb={3}
-          textAlign="center"
-          color="text.primary"
-        >
->>>>>>> 487d287d610ecf32cf17e5481b47ab57ccc35bde
+        <Typography variant="h4" mb={3} textAlign="center" fontWeight="bold" color="primary.main">
           MyGram
         </Typography>
 
-        {error && (
-          <Typography color="error" mb={2} textAlign="center">
-<<<<<<< HEAD
-            {error} {countdown > 0 && `(${minutes}m ${seconds}s)`}
-=======
-            {error}
->>>>>>> 487d287d610ecf32cf17e5481b47ab57ccc35bde
+        {countdown > 0 && (
+          <Typography color="error" mb={2} textAlign="center" variant="body2" fontWeight="600">
+            {t("tooManyAttempts")} ({minutes}m {seconds}s)
           </Typography>
         )}
 
         <TextField
           fullWidth
-          label="Email"
+          label={t("email")}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-<<<<<<< HEAD
           sx={{ mb: 2 }}
-=======
-          variant="outlined"
->>>>>>> 487d287d610ecf32cf17e5481b47ab57ccc35bde
+          onKeyDown={(e) => e.key === "Enter" && handleLogin()} 
         />
+
         <TextField
           fullWidth
           type="password"
-          label="Password"
+          label={t("password")}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-<<<<<<< HEAD
           sx={{ mb: 2 }}
-=======
-          variant="outlined"
->>>>>>> 487d287d610ecf32cf17e5481b47ab57ccc35bde
+          onKeyDown={(e) => e.key === "Enter" && handleLogin()} 
         />
 
         <Button
           fullWidth
           variant="contained"
-<<<<<<< HEAD
           onClick={handleLogin}
-          disabled={countdown > 0}
-          sx={{ mt: 1.5, py: 1.5 }}
-=======
-          color="primary"
-          onClick={handleLogin}
-          sx={{ mt: 2, py: 1.5 }}
->>>>>>> 487d287d610ecf32cf17e5481b47ab57ccc35bde
+          disabled={countdown > 0 || !email.trim() || !password}
+          sx={{ mt: 1.5, py: 1.5, fontWeight: "bold", borderRadius: 2 }}
         >
-          Login
+          {t("login")}
         </Button>
 
-<<<<<<< HEAD
-        <Typography mt={2} textAlign="center">
-=======
-        <Typography mt={2} textAlign="center" color="text.secondary">
->>>>>>> 487d287d610ecf32cf17e5481b47ab57ccc35bde
-          Don't have an account?{" "}
-          <Link to="/register" style={{ color: "#00a8ff", fontWeight: 500 }}>
-            Register
+        <Typography mt={2} textAlign="center" variant="body2" color="text.secondary">
+          {t("dontHaveAccount")}{" "}
+          <Link to="/register" style={{ color: "#00a8ff", fontWeight: 600, textDecoration: "none" }}>
+            {t("register")}
           </Link>
         </Typography>
       </Box>
     </motion.div>
   );
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 487d287d610ecf32cf17e5481b47ab57ccc35bde

@@ -1,20 +1,41 @@
+
+
+
 // src/theme.js
 import { createTheme } from "@mui/material/styles";
+import { COLORS } from "./utils/constants"; 
 
 const theme = createTheme({
   palette: {
-    primary: { main: "#00a8ff" },
-    secondary: { main: "#0097e6" },
-    error: { main: "#e84118" },
-    background: { default: "#f5f6fa" },
-    text: { primary: "#2f3640", secondary: "#718093" },
+    primary: { 
+      main: COLORS.PRIMARY 
+    },
+    secondary: { 
+      main: COLORS.SECONDARY 
+    },
+    error: { 
+      main: COLORS.ERROR 
+    },
+    background: { 
+      default: COLORS.BACKGROUND 
+    },
+    text: { 
+      primary: COLORS.TEXT_MAIN, 
+      secondary: COLORS.TEXT_SECONDARY 
+    },
   },
   typography: {
     fontFamily: "Roboto, sans-serif",
-    h4: { fontWeight: 600 },
-    body1: { fontSize: 16 },
+    h4: { 
+      fontWeight: 600 
+    },
+    body1: { 
+      fontSize: 16 
+    },
   },
-  shape: { borderRadius: 10 },
+  shape: { 
+    borderRadius: 10 
+  },
   components: {
     MuiButton: {
       styleOverrides: {

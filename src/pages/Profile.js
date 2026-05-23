@@ -1,155 +1,103 @@
 
-import React, { useEffect, useState } from "react";
-import { Box, Typography } from "@mui/material";
+
+import React, { useEffect, useCallback } from "react";
+import { Box, Typography, Skeleton } from "@mui/material";
 import { useNavigate } from "react-router-dom";
-import axiosClient from "../api/axiosClient";
 import { motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
+import { useToast } from "../toast/ToastContext";
+import { useDispatch, useSelector } from "react-redux";
 
-import PostCard from "../components/PostCard";
-import LikesPopup from "../components/LikesPopup";
-import ProfileHeader from "../components/ProfileHeader";
+import { logout } from "../features/auth";
+import { fetchUserPosts, PostCard } from "../features/posts";
+import ProfileHeader from '../features/profile/components/ProfileHeader';
 
-export default function Profile({ setUser }) {
+import axiosClient from "../api/axiosClient";
+import socket from "../socket"; 
+import "../i18n";
+
+export default function Profile() {
+  const { t, i18n } = useTranslation();
+  const { showToast } = useToast();
   const navigate = useNavigate();
-
-  const [profile, setProfile] = useState(null);
-  const [posts, setPosts] = useState([]);
-  const [currentUserId, setCurrentUserId] = useState("");
-
-  const [showLikesPopup, setShowLikesPopup] = useState(false);
-  const [likesUsersPopup, setLikesUsersPopup] = useState([]);
-  const [openComments, setOpenComments] = useState({});
-
-  useEffect(() => {
-    axiosClient.get("/users/me")
-      .then(res => {
-        setProfile(res.data);
-        setCurrentUserId(res.data._id);
-      })
-      .catch(err => console.log(err));
-  }, []);
-
-
-  const fetchPosts = async () => {
-    if (!profile) return;
-    try {
-      const res = await axiosClient.get(`/posts/profile/${profile._id}`);
-      setPosts(res.data);
-    } catch (err) {
-      console.log(err);
-    }
-  };
-
-
-  useEffect(() => {
-    if (profile) fetchPosts();
-  }, [profile]);
-
-  const toggleLike = async (postId) => {
-    try {
-      const res = await axiosClient.put(`/posts/${postId}/like`);
-      setPosts(prev =>
-        prev.map(p =>
-          p._id === postId ? { ...p, likesUsers: res.data.likesUsers } : p
-        )
-      );
-    } catch (err) {
-      console.log(err);
-    }
-  };
-
-
-  const openLikesList = (likesUsers) => {
-    setLikesUsersPopup(likesUsers);
-    setShowLikesPopup(true);
-  };
-
+  const dispatch = useDispatch();
   
-  const addComment = async (postId, text) => {
-    if (!text.trim()) return;
+  const { user, isLoading: authLoading } = useSelector((state) => state.auth);
+  const { userPosts, isLoading: loadingPosts } = useSelector((state) => state.posts);
 
-    try {
-      const res = await axiosClient.post(`/comments/${postId}/comments`, { text });
-      setPosts(prev =>
-        prev.map(p =>
-          p._id === postId ? { ...p, comments: res.data.comments } : p
-        )
-      );
-    } catch (err) {
-      console.log(err);
+  useEffect(() => {
+    if (user?._id) {
+      dispatch(fetchUserPosts(user._id));
     }
-  };
+  }, [user?._id, dispatch]);
 
-  const deleteComment = async (postId, commentId) => {
+  const handleLogout = useCallback(async () => {
     try {
-      await axiosClient.delete(`/comments/${postId}/comments/${commentId}`);
-      setPosts(prev =>
-        prev.map(p =>
-          p._id === postId
-            ? { ...p, comments: p.comments.filter(c => c._id !== commentId) }
-            : p
-        )
-      );
+      await axiosClient.post("/auth/logout"); 
     } catch (err) {
-      console.log(err);
+      console.error("Server logout error, forcing client cleanup:", err);
+    } finally {
+      if (socket) {
+        socket.emit("logout", user?._id);
+        socket.disconnect();
+        socket.connect(); 
+      }
+      
+      dispatch(logout());
+      showToast("loggedOut", t("loggedOut"), { icon: "✅" });
+      navigate("/login");
     }
-  };
+  }, [dispatch, navigate, t, showToast, user?._id]);
 
-
-  const toggleCommentsVisibility = (postId) => {
-    setOpenComments(prev => ({ ...prev, [postId]: !prev[postId] }));
-  };
-
-
-  const handleLogout = async () => {
-    await axiosClient.post("/auth/logout");
-    setUser(false);
-    navigate("/login");
-  };
-
-  if (!profile) return <div>Loading...</div>;
+  if (authLoading || !user) {
+    return (
+      <Box sx={{ maxWidth: 600, mx: "auto", mt: 5, px: 2 }}>
+        <Skeleton variant="circular" width={110} height={110} sx={{ mx: "auto", mb: 2 }} />
+        <Skeleton width={150} height={30} sx={{ mx: "auto", mb: 1 }} />
+        {Array.from({ length: 2 }).map((_, idx) => (
+          <Skeleton key={idx} variant="rectangular" height={200} sx={{ mb: 3, borderRadius: 2 }} />
+        ))}
+      </Box>
+    );
+  }
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-      <Box sx={{ maxWidth: 600, mx: "auto", mt: 5 }}>
-
-     <ProfileHeader
-  profile={profile}
-  postsCount={posts.length}
-  handleLogout={handleLogout}
-  fetchPosts={fetchPosts}
-  isOwner={true}     // 🔥 هيدي هي الحل
-/>
-
-        {/* POSTS */}
-        {posts.length === 0 && (
-          <Typography textAlign="center">No posts yet</Typography>
-        )}
-
-        {posts.map(post => (
-          <PostCard
-            key={post._id}
-            post={post}
-            currentUserId={currentUserId}
-            toggleLike={toggleLike}
-            toggleCommentsVisibility={toggleCommentsVisibility}
-            openComments={openComments[post._id]}
-            openLikesList={openLikesList}
-            addComment={addComment}
-            deleteComment={deleteComment}
-            fetchPosts={fetchPosts} 
-          />
-        ))}
-
-      </Box>
-
-      {/* LIKES POPUP */}
-      {showLikesPopup && (
-        <LikesPopup
-          users={likesUsersPopup}
-          onClose={() => setShowLikesPopup(false)}
+      <Box
+        sx={{
+          maxWidth: 600,
+          mx: "auto",
+          mt: 5,
+          direction: i18n.language === "ar" ? "rtl" : "ltr",
+          px: 2,
+        }}
+      >
+        <ProfileHeader
+          profile={user}
+          postsCount={userPosts?.length || 0}
+          handleLogout={handleLogout}
+          isOwner={true}
         />
-      )}
+
+        {loadingPosts
+          ? Array.from({ length: 3 }).map((_, idx) => (
+              <Skeleton key={idx} variant="rectangular" height={200} sx={{ mb: 3, borderRadius: 2 }} />
+            ))
+          : (!userPosts || userPosts.length === 0)
+          ? (
+            <Typography textAlign="center" sx={{ mt: 3, color: "text.secondary" }}>
+              {t("noPostsYet")}
+            </Typography>
+          )
+          : userPosts.map((post) => (
+              <PostCard
+                key={post._id}
+                post={post}
+                currentUserId={user._id}
+                isOnline={true} 
+              />
+            ))}
+      </Box>
     </motion.div>
   );
 }
